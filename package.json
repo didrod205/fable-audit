@@ -1,6 +1,6 @@
 {
   "name": "fable-audit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Autonomous codebase audit that survives crashes — plans the audit, reads your actual files, and ships a prioritized report. Built on oh-my-fable.",
   "type": "module",
   "bin": {
