@@ -60,6 +60,14 @@ export function auditGoal(root, survey, focus) {
   };
 }
 
+/**
+ * One findings file per run. A single shared `findings.jsonl` meant the second
+ * audit in a directory started by loading the first one's findings — so a
+ * re-audit of a fixed repository still reported everything that used to be
+ * wrong with it, and a report sold on that basis was wrong.
+ */
+const sinkFor = (dir, runId) => join(dir, `findings_${runId}.jsonl`);
+
 /** Run a fresh audit. Returns { status, findings, runId, ctx }. */
 export async function audit({ root, focus, provider, model, maxSteps = 24, runsDir, onEvent }) {
   const abs = resolve(root);
@@ -69,19 +77,20 @@ export async function audit({ root, focus, provider, model, maxSteps = 24, runsD
   }
   const dir = runsDir ?? ".fable-audit";
   const survey = await surveyRepo(abs);
-  const { tools, findings } = repoTools(abs, { sink: join(dir, "findings.jsonl") });
-  const config = {
+  const budgets = { maxSteps, maxStepTokens: 8192 };
+  // The context is created first so the run has an id, and the id names the
+  // findings file. Tools are attached after, for the run only.
+  const ctx = createContext(auditGoal(abs, survey, focus), resolveSerializable(budgets));
+  ctx.meta["repoRoot"] = abs;
+  ctx.meta["survey"] = survey;
+  const { tools, findings } = repoTools(abs, { sink: sinkFor(dir, ctx.runId) });
+  const result = await runWith(ctx, {
     provider: makeProvider({ provider, model }),
     store: new FileStore(dir),
     tools,
     onEvent,
-    maxSteps,
-    maxStepTokens: 8192,
-  };
-  const ctx = createContext(auditGoal(abs, survey, focus), resolveSerializable(config));
-  ctx.meta["repoRoot"] = abs;
-  ctx.meta["survey"] = survey;
-  const result = await runWith(ctx, config);
+    ...budgets,
+  });
   return { status: result.status, reason: result.reason, findings, runId: ctx.runId, ctx, survey };
 }
 
@@ -99,7 +108,7 @@ export async function resumeAudit({ runId, provider, model, runsDir, onEvent }) 
   // Findings come back from our own sidecar, not from the checkpoint: the
   // harness records tool calls as prose in the step result, not as structured
   // input, so there is nothing there to reconstruct a finding from.
-  const { tools, findings } = repoTools(abs, { sink: join(dir, "findings.jsonl") });
+  const { tools, findings } = repoTools(abs, { sink: sinkFor(dir, runId) });
   const result = await resume(runId, {
     provider: makeProvider({ provider, model }),
     store,

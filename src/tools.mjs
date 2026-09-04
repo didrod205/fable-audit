@@ -6,6 +6,7 @@ import { join, resolve, relative, sep, extname, dirname } from "node:path";
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "build", "out", "coverage", ".next", ".nuxt",
   ".turbo", ".cache", "vendor", "target", "__pycache__", ".venv", "venv",
+  ".idea", ".vscode", ".gradle", ".terraform", ".pytest_cache", ".mypy_cache",
 ]);
 const BINARY_EXT = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg", ".pdf", ".zip",
@@ -86,6 +87,28 @@ function guard(handler) {
   };
 }
 
+/**
+ * A finding may quote a file that holds a live credential — which is exactly the
+ * finding worth making, and exactly the string that must not travel on into a
+ * report someone emails to a client. Keep the shape of the evidence, drop the
+ * secret: "AWS_SECRET_ACCESS_KEY=<redacted, 40 chars>" says everything the
+ * reader needs and nothing an attacker can use.
+ */
+const SECRET_KEY = /(?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|auth)/i;
+
+export function redactSecrets(text) {
+  if (typeof text !== "string") return text;
+  return text
+    // KEY=value / "key": "value" / key: value
+    .replace(/([\w.\-]*(?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|credential|auth)[\w.\-]*)(\s*[:=]\s*)(["']?)([^\s"',;]{8,})\3/gi,
+      (m, key, sep, q, val) => `${key}${sep}${q}<redacted, ${val.length} chars>${q}`)
+    // standalone high-entropy blobs: provider key prefixes and long base64/hex runs
+    .replace(/\b(?:AKIA|ASIA|ghp_|gho_|github_pat_|sk-[a-zA-Z]*-?|xox[baprs]-|AIza)[A-Za-z0-9_\-]{10,}/g,
+      (m) => `<redacted ${m.slice(0, 4)}… ${m.length} chars>`)
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+      "<redacted private key block>");
+}
+
 /** The already-recorded finding this one restates, if there is one. */
 function duplicateOf(finding, existing) {
   const file = finding.file ?? "";
@@ -101,8 +124,10 @@ async function* walk(root, dir, depth = 0) {
     return;
   }
   for (const e of entries) {
-    if (e.name.startsWith(".") && e.name !== ".github") continue;
     if (e.isDirectory()) {
+      // Directories are skipped by name, not by leading dot. Skipping every
+      // dotfile hid .env, .npmrc and every CI config from an audit whose whole
+      // job is to notice a committed secret.
       if (SKIP_DIRS.has(e.name)) continue;
       yield* walk(root, join(dir, e.name), depth + 1);
     } else if (e.isFile()) {
@@ -241,6 +266,9 @@ export function repoTools(root, { sink } = {}) {
       // A replan re-covers ground, and the model files the same issue again with
       // fresh wording. Two entries for one problem reads as padding, so collapse
       // them on what the finding is ABOUT rather than on its prose.
+      for (const field of ["evidence", "title", "impact", "fix"]) {
+        if (typeof f[field] === "string") f[field] = redactSecrets(f[field]);
+      }
       const dupe = duplicateOf(f, findings);
       if (dupe) return { ok: true, output: `already recorded as ${dupe.id} ("${dupe.title}") — not filed again` };
       findings.push({ ...f, id: `f${findings.length + 1}` });

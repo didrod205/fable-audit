@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { repoTools, surveyRepo } from "../src/tools.mjs";
+import { repoTools, surveyRepo, redactSecrets } from "../src/tools.mjs";
 import { auditGoal } from "../src/audit.mjs";
 
 const tool = (tools, name) => tools.find((t) => t.name === name);
@@ -204,5 +204,63 @@ describe("the goal handed to the agent", () => {
   it("carries the operator's focus through to the agent", () => {
     const g = auditGoal("/tmp/demo", { files: 1, extensions: "", notable: [] }, "only the auth code");
     expect(g.description).toContain("only the auth code");
+  });
+});
+
+describe("a security audit can see the files secrets live in", () => {
+  // Skipping every dotfile hid .env, .npmrc and CI config from an audit whose
+  // whole job is to notice a committed credential.
+  it("finds a secret committed in a dotfile", async () => {
+    const root = repo({ ".env": "AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLEKEY\n", "index.js": "x\n" });
+    try {
+      const out = await tool(repoTools(root).tools, "search").handler({ pattern: "SECRET|AKIA" });
+      expect(out.output).toMatch(/\.env:1:/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("counts dotfiles in the survey", async () => {
+    const root = repo({ ".npmrc": "//registry:_authToken=x\n", "a.js": "x\n" });
+    try {
+      expect((await surveyRepo(root)).files).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("still skips the directories that are noise", async () => {
+    const root = repo({ ".git/config": "x", ".vscode/settings.json": "{}", "a.js": "x" });
+    try {
+      expect((await surveyRepo(root)).files).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("a credential does not travel into the report", () => {
+  // The finding worth making is "a live key is committed here". The key itself
+  // must not ride along into a page someone emails to a client.
+  it("redacts an assigned secret while keeping the finding legible", async () => {
+    const { tools, findings } = repoTools(process.cwd());
+    await tool(tools, "record_finding").handler(
+      record({ evidence: "`.env:1` contains AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLEKEY" }),
+    );
+    expect(findings[0].evidence).not.toContain("AKIAIOSFODNN7EXAMPLEKEY");
+    expect(findings[0].evidence).toContain("AWS_SECRET_ACCESS_KEY=");
+    expect(findings[0].evidence).toMatch(/redacted/);
+  });
+
+  it("redacts a bare provider token and a private key block", () => {
+    expect(redactSecrets("ghp_abcdefghijklmnopqrstuvwxyz012345")).toMatch(/redacted ghp_/);
+    expect(redactSecrets("-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----")).toBe(
+      "<redacted private key block>",
+    );
+  });
+
+  it("leaves ordinary evidence alone", () => {
+    const plain = "read_file returns `{ ok: false }` when the path escapes the repo";
+    expect(redactSecrets(plain)).toBe(plain);
   });
 });
