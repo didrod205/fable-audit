@@ -14,7 +14,9 @@
     "node": ">=18"
   },
   "scripts": {
-    "audit": "node bin/fable-audit.mjs"
+    "audit": "node bin/fable-audit.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "code-audit",
@@ -36,5 +38,8 @@
   "homepage": "https://github.com/didrod205/fable-audit#readme",
   "dependencies": {
     "oh-my-fable": "^0.4.3"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
   }
 }

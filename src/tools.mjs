@@ -71,6 +71,21 @@ function similarity(a, b) {
   return shared / (A.size + B.size - shared);
 }
 
+/**
+ * Turn a thrown path or filesystem error into the {ok:false} shape every other
+ * tool here returns. The registry catches throws too, but a tool that reports
+ * its own failures is usable directly — and the message stays specific.
+ */
+function guard(handler) {
+  return async (input) => {
+    try {
+      return await handler(input);
+    } catch (err) {
+      return { ok: false, output: "", error: err?.message ?? String(err) };
+    }
+  };
+}
+
 /** The already-recorded finding this one restates, if there is one. */
 function duplicateOf(finding, existing) {
   const file = finding.file ?? "";
@@ -121,7 +136,7 @@ export function repoTools(root, { sink } = {}) {
     "list_dir",
     "List files and directories at a path inside the repo. Use this to orient before reading.",
     { type: "object", properties: { path: { type: "string", description: "repo-relative path; omit for the root" } } },
-    async ({ path }) => {
+    guard(async ({ path }) => {
       const dir = await safeJoin(root, path);
       const entries = await readdir(dir, { withFileTypes: true });
       const lines = entries
@@ -129,7 +144,7 @@ export function repoTools(root, { sink } = {}) {
         .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
         .sort();
       return { ok: true, output: lines.join("\n") || "(empty)" };
-    },
+    }),
     { readOnly: true },
   );
 
@@ -145,7 +160,7 @@ export function repoTools(root, { sink } = {}) {
       },
       required: ["path"],
     },
-    async ({ path, start, end }) => {
+    guard(async ({ path, start, end }) => {
       const file = await safeJoin(root, path);
       const info = await stat(file);
       if (info.size > MAX_FILE_BYTES) {
@@ -159,7 +174,7 @@ export function repoTools(root, { sink } = {}) {
       const to = Math.min(lines.length, end ?? lines.length);
       const body = lines.slice(from - 1, to).map((l, i) => `${from + i}\t${l}`).join("\n");
       return { ok: true, output: body || "(empty file)" };
-    },
+    }),
     { readOnly: true },
   );
 
@@ -174,7 +189,7 @@ export function repoTools(root, { sink } = {}) {
       },
       required: ["pattern"],
     },
-    async ({ pattern, glob }) => {
+    guard(async ({ pattern, glob }) => {
       let re;
       try {
         re = new RegExp(pattern, "i");
@@ -201,7 +216,7 @@ export function repoTools(root, { sink } = {}) {
       }
       const capped = hits.length >= MAX_MATCHES ? `\n(stopped at ${MAX_MATCHES} matches)` : "";
       return { ok: true, output: hits.length ? hits.join("\n") + capped : "no matches" };
-    },
+    }),
     { readOnly: true },
   );
 
