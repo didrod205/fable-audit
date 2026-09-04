@@ -25,6 +25,15 @@
     "oh-my-fable"
   ],
   "license": "MIT",
+  "author": "didrod205 (https://github.com/didrod205)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/didrod205/fable-audit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/didrod205/fable-audit/issues"
+  },
+  "homepage": "https://github.com/didrod205/fable-audit#readme",
   "dependencies": {
     "oh-my-fable": "^0.4.3"
   }
