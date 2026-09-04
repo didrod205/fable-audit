@@ -77,14 +77,24 @@ Options
   --provider anthropic ANTHROPIC_API_KEY
   --model <id>         model for the chosen provider
   --max-steps <n>      step budget (default 24)
+  --runs-dir <dir>     where checkpoints and findings live (default: .fable-audit)
 
 Runs are checkpointed after every step, so an audit that dies to a laptop
 lid, an OOM, or a lost network resumes instead of starting over.
 `);
 }
 
+const KNOWN = new Set(["focus", "out", "provider", "model", "max-steps", "runs-dir", "help"]);
+
 const { _, flags } = parse(process.argv.slice(2));
 const cmd = _[0];
+// A misspelled flag that is quietly ignored is worse than one that errors: the
+// run costs real minutes and does not do what was asked.
+const unknown = Object.keys(flags).filter((f) => !KNOWN.has(f));
+if (unknown.length) {
+  process.stderr.write(`\nfable-audit: unknown flag${unknown.length > 1 ? "s" : ""}: ${unknown.map((f) => "--" + f).join(", ")}\n\n`);
+  process.exit(2);
+}
 
 try {
   if (!cmd || flags["help"] || cmd === "help") {
@@ -93,7 +103,13 @@ try {
     const runId = _[1];
     if (!runId) throw new Error("give a run id: fable-audit resume <runId>");
     process.stdout.write(`\n  ${dim("resuming")} ${runId}\n\n`);
-    const r = await resumeAudit({ runId, provider: str(flags["provider"]), model: str(flags["model"]), onEvent: renderer() });
+    const r = await resumeAudit({
+      runId,
+      provider: str(flags["provider"]),
+      model: str(flags["model"]),
+      runsDir: str(flags["runs-dir"]),
+      onEvent: renderer(),
+    });
     await emit(str(flags["out"]) ?? "audit", { repo: basename(r.ctx?.meta?.repoRoot ?? "repo"), ...r });
     process.exit(r.status === "done" ? 0 : 1);
   } else {
@@ -105,6 +121,7 @@ try {
       provider: str(flags["provider"]),
       model: str(flags["model"]),
       maxSteps: num(flags["max-steps"], "max-steps"),
+      runsDir: str(flags["runs-dir"]),
       onEvent: renderer(),
     });
     await emit(str(flags["out"]) ?? "audit", { repo: basename(root), ...r });

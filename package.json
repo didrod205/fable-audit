@@ -26,6 +26,6 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "oh-my-fable": "file:../oh-my-fable"
+    "oh-my-fable": "^0.4.2"
   }
 }
