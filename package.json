@@ -26,6 +26,6 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "oh-my-fable": "^0.4.2"
+    "oh-my-fable": "^0.4.3"
   }
 }

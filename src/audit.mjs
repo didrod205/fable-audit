@@ -9,7 +9,10 @@ import { existsSync, statSync } from "node:fs";
  * affordable to run in the first place.
  */
 export function makeProvider({ provider = "claude", model } = {}) {
-  if (provider === "claude") return claudeCode({ model, timeoutMs: 300_000 });
+  // No timeout override: oh-my-fable >= 0.4.3 defaults to 10 minutes for an
+  // agentic CLI step, which is longer than the 5 minutes set here — and 5 was
+  // already short enough to kill an audit mid-file-read.
+  if (provider === "claude") return claudeCode({ model });
   if (provider === "anthropic") return new AnthropicProvider(model ? { model } : {});
   throw new Error(`unknown provider: ${provider}`);
 }
